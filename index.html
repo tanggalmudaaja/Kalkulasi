@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KALKULASI PENDAPATAN | TARIF | SHARING</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
+    <!-- Babel Standalone for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <style>
+        body { 
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a; 
+            color: #0f172a;
+        }
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none; 
+            margin: 0; 
+        }
+        input[type=number] {
+            -moz-appearance: textfield;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.96);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.9);
+            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.3);
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.1);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(99, 102, 241, 0.5);
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="antialiased min-h-screen bg-gradient-to-br from-indigo-900 via-blue-900 to-slate-950 flex flex-col justify-between p-3 sm:p-6 lg:p-8">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const App = () => {
+            const DEFAULT_FLAT = 50000;
+            const DEFAULT_MAX_LIMIT = 500000;
+            const DEFAULT_PENGAJUAN = 1000000;
+            
+            const [flatFee, setFlatFee] = React.useState(DEFAULT_FLAT);
+            const [maxLimit, setMaxLimit] = React.useState(DEFAULT_MAX_LIMIT);
+            const [pengajuan, setPengajuan] = React.useState(DEFAULT_PENGAJUAN);
+
+            // Revenue Sharing % states (Default: Tanggalmuda 70%, Agency 30%, others 0%)
+            const [shareTanggalMuda, setShareTanggalMuda] = React.useState(70);
+            const [shareMitra, setShareMitra] = React.useState(15);
+            const [shareAgency, setShareAgency] = React.useState(15);
+            const [shareNonAgency, setShareNonAgency] = React.useState(0);
+            const [shareReferal, setShareReferal] = React.useState(0);
+
+            // Bagian D: Editable Bulk Volume States
+            const [bulkVol1, setBulkVol1] = React.useState(100);
+            const [bulkVol2, setBulkVol2] = React.useState(500);
+            const [bulkVol3, setBulkVol3] = React.useState(1000);
+
+            // Helper format Rupiah
+            const formatRp = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num || 0);
+            
+            const formatRibuan = (num) => {
+                if (num === null || num === undefined || num === '') return '';
+                return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+            };
+
+            const handlePengajuanChange = (e) => {
+                const rawValue = e.target.value.replace(/\D/g, '');
+                setPengajuan(rawValue === '' ? '' : Number(rawValue));
+            };
+
+            const handleFlatFeeChange = (e) => {
+                const rawValue = e.target.value.replace(/\D/g, '');
+                setFlatFee(rawValue === '' ? '' : Number(rawValue));
+            };
+
+            const handleMaxLimitChange = (e) => {
+                const rawValue = e.target.value.replace(/\D/g, '');
+                setMaxLimit(rawValue === '' ? '' : Number(rawValue));
+            };
+
+            const handleReset = () => {
+                setFlatFee('');
+                setMaxLimit('');
+                setPengajuan('');
+                setShareTanggalMuda('');
+                setShareMitra('');
+                setShareAgency('');
+                setShareNonAgency('');
+                setShareReferal('');
+                setBulkVol1('');
+                setBulkVol2('');
+                setBulkVol3('');
+            };
+
+            // Validasi Total Persentase Sharing harus 100%
+            const totalShare = Number(shareTanggalMuda || 0) + Number(shareMitra || 0) + Number(shareAgency || 0) + Number(shareNonAgency || 0) + Number(shareReferal || 0);
+            const isShareValid = totalShare === 100;
+
+            // Perhitungan Pajak DPP & PPN (11%) dari Tarif Flat per transaksi
+            const taxDetails = React.useMemo(() => {
+                const fee = flatFee || 0;
+                const dpp = fee / 1.11;
+                const ppn = fee - dpp;
+                return { dpp: Math.round(dpp), ppn: Math.round(ppn) };
+            }, [flatFee]);
+
+            // Skenario Penarikan Otomatis (Split Otomatis jika > maxLimit)
+            const skenario = React.useMemo(() => {
+                let needed = pengajuan || 0;
+                let limit = maxLimit || 500000;
+                if (needed <= 0 || limit <= 0) return { count: 0, totalFee: 0, modeDesc: '', formula: '', details: [] };
+                
+                let totalWithdrawals = 0;
+                let modeDesc = '';
+                let formula = '';
+                let details = [];
+
+                if (needed <= limit) {
+                    totalWithdrawals = 1;
+                    modeDesc = `1x Pengajuan (≤ ${formatRp(limit)})`;
+                    formula = `1 transaksi × ${formatRp(flatFee)}`;
+                    details = [{ label: 'Pengajuan 1', amount: needed }];
+                } else {
+                    let temp = needed;
+                    let count = 0;
+                    let step = 1;
+                    while (temp > 0) {
+                        let currentPart = temp >= limit ? limit : temp;
+                        details.push({ label: `Pengajuan ${step}`, amount: currentPart });
+                        temp -= currentPart;
+                        count += 1;
+                        step += 1;
+                    }
+                    totalWithdrawals = count;
+                    modeDesc = `Otomatis Dipecah Menjadi ${totalWithdrawals}x Pengajuan`;
+                    formula = `${totalWithdrawals} transaksi × ${formatRp(flatFee)}`;
+                }
+                
+                return {
+                    count: totalWithdrawals,
+                    totalFee: totalWithdrawals * (flatFee || 0),
+                    totalDpp: totalWithdrawals * taxDetails.dpp,
+                    totalPpn: totalWithdrawals * taxDetails.ppn,
+                    modeDesc: modeDesc,
+                    formula: formula,
+                    details: details
+                };
+            }, [pengajuan, maxLimit, flatFee, taxDetails]);
+
+            // Perhitungan Revenue Sharing dari total DPP & Potongan PPh 23 (2%)
+            const revenueSharingNominal = React.useMemo(() => {
+                const totalDpp = skenario.totalDpp || 0;
+                
+                const rawTanggalMuda = (totalDpp * (shareTanggalMuda || 0)) / 100;
+                const rawMitra = (totalDpp * (shareMitra || 0)) / 100;
+                const rawAgency = (totalDpp * (shareAgency || 0)) / 100;
+                const rawNonAgency = (totalDpp * (shareNonAgency || 0)) / 100;
+                const rawReferal = (totalDpp * (shareReferal || 0)) / 100;
+
+                const pphMitra = rawMitra * 0.02;
+                const pphAgency = rawAgency * 0.02;
+                const pphNonAgency = rawNonAgency * 0.02;
+                const pphReferal = rawReferal * 0.02;
+
+                return {
+                    tanggalMuda: rawTanggalMuda,
+                    mitraGross: rawMitra,
+                    pphMitra: pphMitra,
+                    mitraNet: rawMitra - pphMitra,
+
+                    agencyGross: rawAgency,
+                    pphAgency: pphAgency,
+                    agencyNet: rawAgency - pphAgency,
+
+                    nonAgencyGross: rawNonAgency,
+                    pphNonAgency: pphNonAgency,
+                    nonAgencyNet: rawNonAgency - pphNonAgency,
+
+                    referalGross: rawReferal,
+                    pphReferal: pphReferal,
+                    referalNet: rawReferal - pphReferal,
+
+                    totalPph23Dipotong: pphMitra + pphAgency + pphNonAgency + pphReferal
+                };
+            }, [skenario.totalDpp, shareTanggalMuda, shareMitra, shareAgency, shareNonAgency, shareReferal]);
+
+            const calculateBulkSummary = (txCount) => {
+                const count = Number(txCount) || 0;
+                const fee = flatFee || 0;
+                const totalGrossFee = count * fee;
+                const totalDpp = count * taxDetails.dpp;
+                const totalPpn = count * taxDetails.ppn;
+
+                const tmShare = (totalDpp * (shareTanggalMuda || 0)) / 100;
+                const mitraGross = (totalDpp * (shareMitra || 0)) / 100;
+                const mitraPph = mitraGross * 0.02;
+                const mitraNet = mitraGross - mitraPph;
+
+                const agencyGross = (totalDpp * (shareAgency || 0)) / 100;
+                const agencyPph = agencyGross * 0.02;
+                const agencyNet = agencyGross - agencyPph;
+
+                const nonAgencyGross = (totalDpp * (shareNonAgency || 0)) / 100;
+                const nonAgencyPph = nonAgencyGross * 0.02;
+                const nonAgencyNet = nonAgencyGross - nonAgencyPph;
+
+                const refGross = (totalDpp * (shareReferal || 0)) / 100;
+                const refPph = refGross * 0.02;
+                const refNet = refGross - refPph;
+
+                return {
+                    totalGrossFee,
+                    totalDpp,
+                    totalPpn,
+                    tmShare,
+                    mitraNet,
+                    agencyNet,
+                    nonAgencyNet,
+                    refNet,
+                    totalPph23: mitraPph + agencyPph + nonAgencyPph + refPph
+                };
+            };
+
+            const bulk1 = React.useMemo(() => calculateBulkSummary(bulkVol1), [flatFee, taxDetails, shareTanggalMuda, shareMitra, shareAgency, shareNonAgency, shareReferal, bulkVol1]);
+            const bulk2 = React.useMemo(() => calculateBulkSummary(bulkVol2), [flatFee, taxDetails, shareTanggalMuda, shareMitra, shareAgency, shareNonAgency, shareReferal, bulkVol2]);
+            const bulk3 = React.useMemo(() => calculateBulkSummary(bulkVol3), [flatFee, taxDetails, shareTanggalMuda, shareMitra, shareAgency, shareNonAgency, shareReferal, bulkVol3]);
+
+            return (
+                <div className="max-w-4xl mx-auto w-full flex flex-col gap-4 relative">
+                    
+                    <div className="absolute top-[-10%] left-[-10%] w-72 h-72 bg-blue-500 rounded-full mix-blend-overlay filter blur-[80px] opacity-40 pointer-events-none"></div>
+                    <div className="absolute bottom-[-10%] right-[-10%] w-72 h-72 bg-indigo-500 rounded-full mix-blend-overlay filter blur-[80px] opacity-40 pointer-events-none"></div>
+
+                    <div className="flex items-center justify-between z-10 py-2 border-b border-white/10">
+                        <div className="flex items-center gap-3">
+                            <div className="bg-indigo-600 text-amber-300 w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center text-lg sm:text-xl shadow-lg font-black">
+                                <i className="fas fa-calculator"></i>
+                            </div>
+                            <h1 className="font-black text-white text-base sm:text-xl md:text-2xl tracking-tight drop-shadow-md uppercase">KALKULASI PENDAPATAN | TARIF | SHARING</h1>
+                        </div>
+                        <button onClick={handleReset} className="text-white hover:bg-white/25 text-xs sm:text-sm font-bold flex items-center gap-2 bg-white/15 px-4 py-2.5 rounded-xl shadow-md active:scale-95 transition-all border border-white/30 shrink-0">
+                            <i className="fas fa-rotate-right text-xs"></i> Reset
+                        </button>
+                    </div>
+
+                    {/* MAIN CONTENT CONTAINER */}
+                    <div className="flex flex-col gap-5 z-10">
+                        
+                        <div className="glass-panel p-4 sm:p-6 rounded-2xl shadow-xl flex flex-col gap-5 border-t-4 border-indigo-600">
+                            <div className="text-xs sm:text-base font-extrabold uppercase tracking-wider text-indigo-950 bg-indigo-100/90 px-3.5 py-2 rounded-xl flex items-center gap-2.5 w-fit shadow-sm">
+                                <i className="fas fa-tag text-indigo-700"></i> A. Penentuan Tarif Flat &amp; Revenue Sharing
+                            </div>
+                            
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div className="flex flex-col flex-1">
+                                    <label className="text-slate-900 text-sm sm:text-lg font-extrabold tracking-wide">
+                                        Tarif Flat (Admin)
+                                    </label>
+                                    <span className="text-xs sm:text-sm text-slate-600 font-semibold leading-relaxed mt-0.5">
+                                        Tarif berlaku maksimal untuk 1x penarikan. Jika melebihi limit maksimal, otomatis dikali kelipatan.
+                                    </span>
+                                </div>
+                                <div className="flex items-center bg-slate-100 border-2 border-slate-300 rounded-xl px-3.5 py-2.5 w-full sm:w-64 shadow-inner focus-within:ring-2 focus-within:ring-indigo-500 shrink-0">
+                                    <span className="text-sm sm:text-lg text-slate-600 font-black mr-2">Rp</span>
+                                    <input 
+                                        type="text" 
+                                        inputMode="numeric"
+                                        value={formatRibuan(flatFee)} 
+                                        onChange={handleFlatFeeChange} 
+                                        className="w-full bg-transparent outline-none text-slate-900 text-sm sm:text-lg font-black text-right"
+                                        placeholder="0"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Batas Maksimal 1x Penarikan Dinamis */}
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-200 pt-4">
+                                <div className="flex flex-col flex-1">
+                                    <label className="text-slate-900 text-sm sm:text-lg font-extrabold tracking-wide">
+                                        Batas Maksimal 1x Penarikan
+                                    </label>
+                                    <span className="text-xs sm:text-sm text-slate-600 font-semibold leading-relaxed mt-0.5">
+                                        Nominal plafon maksimal untuk sekali transaksi penarikan.
+                                    </span>
+                                </div>
+                                <div className="flex items-center bg-slate-100 border-2 border-slate-300 rounded-xl px-3.5 py-2.5 w-full sm:w-64 shadow-inner focus-within:ring-2 focus-within:ring-indigo-500 shrink-0">
+                                    <span className="text-sm sm:text-lg text-slate-600 font-black mr-2">Rp</span>
+                                    <input 
+                                        type="text" 
+                                        inputMode="numeric"
+                                        value={formatRibuan(maxLimit)} 
+                                        onChange={handleMaxLimitChange} 
+                                        className="w-full bg-transparent outline-none text-slate-900 text-sm sm:text-lg font-black text-right"
+                                        placeholder="0"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Catatan PPN & DPP */}
+                            <div className="bg-indigo-50/90 border border-indigo-200 rounded-xl p-3.5 text-xs sm:text-sm text-indigo-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2 font-bold shadow-sm">
+                                <span><i className="fas fa-receipt text-indigo-600 mr-1.5"></i> Tarif sudah termasuk PPN (11%):</span>
+                                <span className="text-slate-800">DPP: <strong className="text-indigo-700">{formatRp(taxDetails.dpp)}</strong> | PPN: <strong className="text-indigo-700">{formatRp(taxDetails.ppn)}</strong></span>
+                            </div>
+
+                            {/* Revenue Sharing Inputs (Stack ke Bawah) */}
+                            <div className="border-t border-slate-200 pt-4 flex flex-col gap-3">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                                    <span className="text-xs sm:text-sm font-extrabold uppercase text-slate-800 tracking-wider">Persentase Revenue Sharing Dari DPP (%):</span>
+                                    <span className={`text-xs font-black px-2.5 py-1 rounded-lg w-fit ${isShareValid ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-rose-100 text-rose-800 border border-rose-300'}`}>
+                                        Total: {totalShare}% {isShareValid ? '(Valid)' : '(Harus 100%)'}
+                                    </span>
+                                </div>
+                                
+                                <div className="flex flex-col gap-2.5">
+                                    <div className="flex items-center justify-between bg-slate-100 border border-slate-300 rounded-xl px-4 py-2.5 shadow-sm">
+                                        <span className="text-xs sm:text-base font-bold text-slate-800">Tanggalmuda.com</span>
+                                        <div className="flex items-center w-24 bg-white rounded-lg border border-slate-300 px-2.5 py-1 shadow-inner">
+                                            <input type="number" value={shareTanggalMuda} onChange={(e) => setShareTanggalMuda(e.target.value === '' ? '' : Number(e.target.value))} className="w-full text-right text-sm sm:text-base font-black bg-transparent outline-none" placeholder="0" />
+                                            <span className="text-xs text-slate-500 ml-1 font-bold">%</span>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center justify-between bg-slate-100 border border-slate-300 rounded-xl px-4 py-2.5 shadow-sm">
+                                        <span className="text-xs sm:text-base font-bold text-slate-800">Mitra</span>
+                                        <div className="flex items-center w-24 bg-white rounded-lg border border-slate-300 px-2.5 py-1 shadow-inner">
+                                            <input type="number" value={shareMitra} onChange={(e) => setShareMitra(e.target.value === '' ? '' : Number(e.target.value))} className="w-full text-right text-sm sm:text-base font-black bg-transparent outline-none" placeholder="0" />
+                                            <span className="text-xs text-slate-500 ml-1 font-bold">%</span>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center justify-between bg-slate-100 border border-slate-300 rounded-xl px-4 py-2.5 shadow-sm">
+                                        <span className="text-xs sm:text-base font-bold text-slate-800">Marketing Agency</span>
+                                        <div className="flex items-center w-24 bg-white rounded-lg border border-slate-300 px-2.5 py-1 shadow-inner">
+                                            <input type="number" value={shareAgency} onChange={(e) => setShareAgency(e.target.value === '' ? '' : Number(e.target.value))} className="w-full text-right text-sm sm:text-base font-black bg-transparent outline-none" placeholder="0" />
+                                            <span className="text-xs text-slate-500 ml-1 font-bold">%</span>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center justify-between bg-slate-100 border border-slate-300 rounded-xl px-4 py-2.5 shadow-sm">
+                                        <span className="text-xs sm:text-base font-bold text-slate-800">Marketing Non Agency</span>
+                                        <div className="flex items-center w-24 bg-white rounded-lg border border-slate-300 px-2.5 py-1 shadow-inner">
+                                            <input type="number" value={shareNonAgency} onChange={(e) => setShareNonAgency(e.target.value === '' ? '' : Number(e.target.value))} className="w-full text-right text-sm sm:text-base font-black bg-transparent outline-none" placeholder="0" />
+                                            <span className="text-xs text-slate-500 ml-1 font-bold">%</span>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center justify-between bg-slate-100 border border-slate-300 rounded-xl px-4 py-2.5 shadow-sm">
+                                        <span className="text-xs sm:text-base font-bold text-slate-800">Marketing Referal</span>
+                                        <div className="flex items-center w-24 bg-white rounded-lg border border-slate-300 px-2.5 py-1 shadow-inner">
+                                            <input type="number" value={shareReferal} onChange={(e) => setShareReferal(e.target.value === '' ? '' : Number(e.target.value))} className="w-full text-right text-sm sm:text-base font-black bg-transparent outline-none" placeholder="0" />
+                                            <span className="text-xs text-slate-500 ml-1 font-bold">%</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="glass-panel p-4 sm:p-6 rounded-2xl shadow-xl flex flex-col gap-4 border-t-4 border-indigo-600">
+                            <div className="text-xs sm:text-base font-extrabold uppercase tracking-wider text-indigo-950 bg-indigo-100/90 px-3.5 py-2 rounded-xl flex items-center gap-2.5 w-fit shadow-sm">
+                                <i className="fas fa-users text-indigo-700"></i> B. Simulasi Nominal Jumlah Pengajuan Karyawan
+                            </div>
+
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div className="flex flex-col flex-1">
+                                    <label className="text-slate-900 text-sm sm:text-lg font-extrabold tracking-wide">
+                                        Jumlah Pengajuan
+                                    </label>
+                                    <span className="text-xs sm:text-sm text-slate-600 font-semibold leading-relaxed mt-0.5">
+                                        Total nominal dana yang diajukan karyawan.
+                                    </span>
+                                </div>
+                                <div className="flex items-center bg-slate-100 border-2 border-slate-300 rounded-xl px-3.5 py-2.5 w-full sm:w-64 shadow-inner focus-within:ring-2 focus-within:ring-indigo-500 shrink-0">
+                                    <span className="text-sm sm:text-lg text-slate-600 font-black mr-2">Rp</span>
+                                    <input 
+                                        type="text" 
+                                        inputMode="numeric"
+                                        value={formatRibuan(pengajuan)} 
+                                        onChange={handlePengajuanChange} 
+                                        className="w-full bg-transparent outline-none text-slate-900 text-sm sm:text-lg font-black text-right"
+                                        placeholder="0"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* NOTIFIKASI KEBIJAKAN & SPLIT OTOMATIS */}
+                            {Number(pengajuan) > Number(maxLimit || 500000) && (
+                                <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4 text-xs sm:text-sm font-bold text-amber-950 flex flex-col gap-3 shadow-sm animate-fade-in">
+                                    <div className="flex items-start gap-2.5">
+                                        <i className="fas fa-info-circle text-amber-600 mt-0.5 shrink-0 text-base sm:text-lg"></i>
+                                        <span className="leading-relaxed">Karena pengajuan melebihi limit maksimal 1x penarikan ({formatRp(maxLimit)}), sistem secara otomatis menjadikan pengajuan dibagi menjadi beberapa bagian:</span>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-white/90 p-3 rounded-xl border border-amber-200 shadow-inner">
+                                        {skenario.details.map((item, idx) => (
+                                            <div key={idx} className="flex justify-between px-3 py-2 bg-amber-50/50 rounded-lg">
+                                                <span className="font-bold text-slate-700">{item.label}:</span>
+                                                <span className="font-black text-indigo-950">{formatRp(item.amount)}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="bg-white p-4 sm:p-7 rounded-2xl shadow-2xl border-2 border-indigo-600 flex flex-col relative overflow-hidden text-slate-900">
+                            <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-600"></div>
+                            
+                            <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-2">
+                                <span className="text-indigo-900 text-xs sm:text-base font-black uppercase tracking-wider flex items-center gap-2.5">
+                                    <i className="fas fa-chart-pie text-indigo-600"></i> C. Hasil Simulasi &amp; Pajak
+                                </span>
+                                <span className="text-slate-700 text-xs sm:text-base font-black">Total Fee: <strong className="text-indigo-700 text-sm sm:text-lg">{formatRp(skenario.totalFee)}</strong></span>
+                            </div>
+                            
+                            <div className="space-y-4">
+                                {pengajuan > 0 ? (
+                                    <>
+                                        <div className="flex flex-col bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs sm:text-base gap-2.5 shadow-inner">
+                                            <div className="flex justify-between items-center">
+                                                <span className="font-bold text-slate-700">Skema / Frekuensi:</span>
+                                                <span className="font-black text-slate-900 text-right">{skenario.count}x Transaksi <span className="text-xs sm:text-sm text-indigo-700 font-semibold block sm:inline">({skenario.modeDesc})</span></span>
+                                            </div>
+                                            <div className="flex justify-between items-center border-t border-slate-200 pt-2.5">
+                                                <span className="font-bold text-slate-700">Total DPP &amp; PPN Setor:</span>
+                                                <span className="font-black text-indigo-700 text-xs sm:text-base">DPP: {formatRp(skenario.totalDpp)} | PPN: {formatRp(skenario.totalPpn)}</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Rincian Revenue Sharing & PPh 23 Net */}
+                                        <div className="bg-slate-50 p-4 sm:p-5 rounded-xl border border-slate-200 text-xs sm:text-base flex flex-col gap-3.5 shadow-inner">
+                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-2 gap-1">
+                                                <span className="font-black text-indigo-900 uppercase tracking-wide text-xs sm:text-sm">Rincian Revenue Sharing (Dari DPP &amp; Potong PPh 23):</span>
+                                                {!isShareValid && <span className="text-rose-600 text-xs font-bold"><i className="fas fa-exclamation-triangle mr-1"></i> Total % Sharing belum 100%</span>}
+                                            </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-0.5">
+                                                <div className="flex justify-between items-center bg-amber-100 p-3 rounded-xl border border-amber-300 shadow-sm">
+                                                    <span className="text-slate-900 font-bold">Tanggalmuda.com ({shareTanggalMuda}%):</span>
+                                                    <span className="font-black text-slate-900 text-sm sm:text-base">{formatRp(revenueSharingNominal.tanggalMuda)}</span>
+                                                </div>
+                                                <div className="flex flex-col bg-white p-3 rounded-xl border border-slate-200 gap-1.5">
+                                                    <div className="flex justify-between">
+                                                        <span className="text-slate-700 font-semibold">Mitra ({shareMitra}%):</span>
+                                                        <span className="font-black text-indigo-900">Gross: {formatRp(revenueSharingNominal.mitraGross)}</span>
+                                                    </div>
+                                                    <div className="flex justify-between text-xs sm:text-sm text-slate-500 border-t border-slate-100 pt-1.5">
+                                                        <span>PPh 23 (2%): {formatRp(revenueSharingNominal.pphMitra)}</span>
+                                                        <span className="font-bold text-emerald-600">Net: {formatRp(revenueSharingNominal.mitraNet)}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-col bg-white p-3 rounded-xl border border-slate-200 gap-1.5">
+                                                    <div className="flex justify-between">
+                                                        <span className="text-slate-700 font-semibold">Marketing Agency ({shareAgency}%):</span>
+                                                        <span className="font-black text-indigo-900">Gross: {formatRp(revenueSharingNominal.agencyGross)}</span>
+                                                    </div>
+                                                    <div className="flex justify-between text-xs sm:text-sm text-slate-500 border-t border-slate-100 pt-1.5">
+                                                        <span>PPh 23 (2%): {formatRp(revenueSharingNominal.pphAgency)}</span>
+                                                        <span className="font-bold text-emerald-600">Net: {formatRp(revenueSharingNominal.agencyNet)}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-col bg-white p-3 rounded-xl border border-slate-200 gap-1.5">
+                                                    <div className="flex justify-between">
+                                                        <span className="text-slate-700 font-semibold">Marketing Non Agency ({shareNonAgency}%):</span>
+                                                        <span className="font-black text-indigo-900">Gross: {formatRp(revenueSharingNominal.nonAgencyGross)}</span>
+                                                    </div>
+                                                    <div className="flex justify-between text-xs sm:text-sm text-slate-500 border-t border-slate-100 pt-1.5">
+                                                        <span>PPh 23 (2%): {formatRp(revenueSharingNominal.pphNonAgency)}</span>
+                                                        <span className="font-bold text-emerald-600">Net: {formatRp(revenueSharingNominal.nonAgencyNet)}</span>
+                                                    </div>
+                                                </div>
+                                                {shareReferal > 0 && (
+                                                    <div className="flex flex-col bg-white p-3 rounded-xl border border-slate-200 gap-1.5 md:col-span-2">
+                                                        <div className="flex justify-between">
+                                                            <span className="text-slate-700 font-semibold">Marketing Referal ({shareReferal}%):</span>
+                                                            <span className="font-black text-indigo-900">Gross: {formatRp(revenueSharingNominal.referalGross)}</span>
+                                                        </div>
+                                                        <div className="flex justify-between text-xs sm:text-sm text-slate-500 border-t border-slate-100 pt-1.5">
+                                                            <span>PPh 23 (2%): {formatRp(revenueSharingNominal.pphReferal)}</span>
+                                                            <span className="font-bold text-emerald-600">Net: {formatRp(revenueSharingNominal.referalNet)}</span>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="mt-1 pt-2.5 border-t border-slate-200 flex justify-between items-center text-xs sm:text-base text-indigo-950 font-bold">
+                                                <span>Total PPh 23 yang Dipotong &amp; Disetor:</span>
+                                                <span className="font-black text-sm sm:text-lg text-indigo-700">{formatRp(revenueSharingNominal.totalPph23Dipotong)}</span>
+                                            </div>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="text-slate-600 text-xs sm:text-base text-center py-5 px-3 font-bold bg-slate-100 rounded-xl border border-dashed border-slate-300 flex items-center justify-center gap-2.5">
+                                        <i className="fas fa-info-circle text-indigo-600 text-lg"></i>
+                                        <span>Masukkan jumlah pengajuan untuk melihat hasil simulasi.</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="bg-white p-4 sm:p-7 rounded-2xl shadow-2xl border-2 border-indigo-600 flex flex-col relative overflow-hidden text-slate-900">
+                            <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-blue-600 via-amber-500 to-blue-600"></div>
+                            
+                            <div className="flex items-center mb-4 gap-2">
+                                <span className="text-indigo-900 text-xs sm:text-base font-black uppercase tracking-wider flex items-center gap-2.5">
+                                    <i className="fas fa-layer-group text-indigo-600"></i> D. Estimasi Berdasarkan Volume Total Transaksi (untuk simulasi, total transaksi isi sesuai target)
+                                </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                {/* Kolom 1 */}
+                                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col gap-3 shadow-inner">
+                                    <div className="flex flex-col gap-2 bg-amber-400 text-slate-950 p-3 rounded-xl shadow">
+                                        <div className="flex items-center justify-between text-xs sm:text-sm font-extrabold">
+                                            <span>Total transaksi</span>
+                                            <input 
+                                                type="number" 
+                                                value={bulkVol1} 
+                                                onChange={(e) => setBulkVol1(e.target.value === '' ? '' : Number(e.target.value))} 
+                                                className="w-20 bg-white text-slate-900 text-right font-black rounded outline-none border border-amber-500 px-2 py-0.5 shadow-inner"
+                                                placeholder="0"
+                                            />
+                                        </div>
+                                        <div className="flex items-center justify-between text-xs sm:text-sm font-extrabold border-t border-amber-500/30 pt-1.5">
+                                            <span>pendapatan bruto</span>
+                                            <span className="font-black">{formatRp(bulk1.totalGrossFee)}</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="text-xs font-black uppercase text-indigo-900 tracking-wider pt-1">Detail:</div>
+                                    
+                                    <div className="flex flex-col gap-1.5 text-xs sm:text-sm font-semibold">
+                                        <div className="flex justify-between text-slate-600 border-b border-slate-200 pb-1">
+                                            <span>DPP Total:</span>
+                                            <span className="font-bold text-slate-900">{formatRp(bulk1.totalDpp)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-slate-600 border-b border-slate-200 pb-1">
+                                            <span>PPN (11%):</span>
+                                            <span className="font-bold text-slate-900">{formatRp(bulk1.totalPpn)}</span>
+                                        </div>
+                                        <div className="flex justify-between bg-amber-300 border border-amber-400 p-2 rounded-lg text-slate-900">
+                                            <span className="font-bold">Tanggalmuda ({shareTanggalMuda}%):</span>
+                                            <span className="font-black">{formatRp(bulk1.tmShare)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-slate-600 border-b border-slate-200 pb-1 pt-1">
+                                            <span>Mitra Net ({shareMitra}%):</span>
+                                            <span className="font-bold text-emerald-600">{formatRp(bulk1.mitraNet)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-slate-600 border-b border-slate-200 pb-1">
+                                            <span>Agency Net ({shareAgency}%):</span>
+                                            <span className="font-bold text-emerald-600">{formatRp(bulk1.agencyNet)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-slate-600 pb-1">
+                                            <span>Non Agency Net ({shareNonAgency}%):</span>
+                                            <span className="font-bold text-emerald-600">{formatRp(bulk1.nonAgencyNet)}</span>
+                                        </div>
+                                        {shareReferal > 0 && (
+                                            <div className="flex justify-between text-slate-600 pb-1 border-t border-slate-200 pt-1">
+                                                <span>Referal Net ({shareReferal}%):</span>
+                                                <span className="font-bold text-emerald-600">{formatRp(bulk1.refNet)}</span>
+                                            </div>
+                                        )}
+                                        <div className="flex justify-between text-slate-800 border-t border-slate-300 pt-1.5 font-bold">
+                                            <span>Total PPh 23:</span>
+                                            <span className="font-black">{formatRp(bulk1.totalPph23)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Kolom 2 */}
+                                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col gap-3 shadow-inner">
+                                    <div className="flex flex-col gap-2 bg-amber-400 text-slate-950 p-3 rounded-xl shadow">
+                                        <div className="flex items-center justify-between text-xs sm:text-sm font-extrabold">
+                                            <span>Total transaksi</span>
+                                            <input 
+                                                type="number" 
+                                                value={bulkVol2} 
+                                                onChange={(e) => setBulkVol2(e.target.value === '' ? '' : Number(e.target.value))} 
+                                                className="w-20 bg-white text-slate-900 text-right font-black rounded outline-none border border-amber-500 px-2 py-0.5 shadow-inner"
+                                                placeholder="0"
+                                            />
+                                        </div>
+                                        <div className="flex items-center justify-between text-xs sm:text-sm font-extrabold border-t border-amber-500/30 pt-1.5">
+                                            <span>pendapatan bruto</span>
+                                            <span className="font-black">{formatRp(bulk2.totalGrossFee)}</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="text-xs font-black uppercase text-indigo-900 tracking-wider pt-1">Detail:</div>
+
+                                    <div className="flex flex-col gap-1.5 text-xs sm:text-sm font-semibold">
+                                        <div className="flex justify-between text-slate-600 border-b border-slate-200 pb-1">
+                                            <span>DPP Total:</span>
+                                            <span className="font-bold text-slate-900">{formatRp(bulk2.totalDpp)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-slate-600 border-b border-slate-200 pb-1">
+                                            <span>PPN (11%):</span>
+                                            <span className="font-bold text-slate-900">{formatRp(bulk2.totalPpn)}</span>
+                                        </div>
+                                        <div className="flex justify-between bg-amber-300 border border-amber-400 p-2 rounded-lg text-slate-900">
+                                            <span className="font-bold">Tanggalmuda ({shareTanggalMuda}%):</span>
+                                            <span className="font-black">{formatRp(bulk2.tmShare)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-slate-600 border-b border-slate-200 pb-1 pt-1">
+                                            <span>Mitra Net ({shareMitra}%):</span>
+                                            <span className="font-bold text-emerald-600">{formatRp(bulk2.mitraNet)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-slate-600 border-b border-slate-200 pb-1">
+                                            <span>Agency Net ({shareAgency}%):</span>
+                                            <span className="font-bold text-emerald-600">{formatRp(bulk2.agencyNet)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-slate-600 pb-1">
+                                            <span>Non Agency Net ({shareNonAgency}%):</span>
+                                            <span className="font-bold text-emerald-600">{formatRp(bulk2.nonAgencyNet)}</span>
+                                        </div>
+                                        {shareReferal > 0 && (
+                                            <div className="flex justify-between text-slate-600 pb-1 border-t border-slate-200 pt-1">
+                                                <span>Referal Net ({shareReferal}%):</span>
+                                                <span className="font-bold text-emerald-600">{formatRp(bulk2.refNet)}</span>
+                                            </div>
+                                        )}
+                                        <div className="flex justify-between text-slate-800 border-t border-slate-300 pt-1.5 font-bold">
+                                            <span>Total PPh 23:</span>
+                                            <span className="font-black">{formatRp(bulk2.totalPph23)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Kolom 3 */}
+                                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col gap-3 shadow-inner">
+                                    <div className="flex flex-col gap-2 bg-amber-400 text-slate-950 p-3 rounded-xl shadow">
+                                        <div className="flex items-center justify-between text-xs sm:text-sm font-extrabold">
+                                            <span>Total transaksi</span>
+                                            <input 
+                                                type="number" 
+                                                value={bulkVol3} 
+                                                onChange={(e) => setBulkVol3(e.target.value === '' ? '' : Number(e.target.value))} 
+                                                className="w-20 bg-white text-slate-900 text-right font-black rounded outline-none border border-amber-500 px-2 py-0.5 shadow-inner"
+                                                placeholder="0"
+                                            />
+                                        </div>
+                                        <div className="flex items-center justify-between text-xs sm:text-sm font-extrabold border-t border-amber-500/30 pt-1.5">
+                                            <span>pendapatan bruto</span>
+                                            <span className="font-black">{formatRp(bulk3.totalGrossFee)}</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="text-xs font-black uppercase text-indigo-900 tracking-wider pt-1">Detail:</div>
+
+                                    <div className="flex flex-col gap-1.5 text-xs sm:text-sm font-semibold">
+                                        <div className="flex justify-between text-slate-600 border-b border-slate-200 pb-1">
+                                            <span>DPP Total:</span>
+                                            <span className="font-bold text-slate-900">{formatRp(bulk3.totalDpp)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-slate-600 border-b border-slate-200 pb-1">
+                                            <span>PPN (11%):</span>
+                                            <span className="font-bold text-slate-900">{formatRp(bulk3.totalPpn)}</span>
+                                        </div>
+                                        <div className="flex justify-between bg-amber-300 border border-amber-400 p-2 rounded-lg text-slate-900">
+                                            <span className="font-bold">Tanggalmuda ({shareTanggalMuda}%):</span>
+                                            <span className="font-black">{formatRp(bulk3.tmShare)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-slate-600 border-b border-slate-200 pb-1 pt-1">
+                                            <span>Mitra Net ({shareMitra}%):</span>
+                                            <span className="font-bold text-emerald-600">{formatRp(bulk3.mitraNet)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-slate-600 border-b border-slate-200 pb-1">
+                                            <span>Agency Net ({shareAgency}%):</span>
+                                            <span className="font-bold text-emerald-600">{formatRp(bulk3.agencyNet)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-slate-600 pb-1">
+                                            <span>Non Agency Net ({shareNonAgency}%):</span>
+                                            <span className="font-bold text-emerald-600">{formatRp(bulk3.nonAgencyNet)}</span>
+                                        </div>
+                                        {shareReferal > 0 && (
+                                            <div className="flex justify-between text-slate-600 pb-1 border-t border-slate-200 pt-1">
+                                                <span>Referal Net ({shareReferal}%):</span>
+                                                <span className="font-bold text-emerald-600">{formatRp(bulk3.refNet)}</span>
+                                            </div>
+                                        )}
+                                        <div className="flex justify-between text-slate-800 border-t border-slate-300 pt-1.5 font-bold">
+                                            <span>Total PPh 23:</span>
+                                            <span className="font-black">{formatRp(bulk3.totalPph23)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
